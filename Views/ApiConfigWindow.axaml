@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SshStudio.Views.ApiConfigWindow"
+        Width="620"
+        Height="570"
+        Title="API 配置">
+  <Border Classes="card" Margin="18" Padding="20">
+    <Grid RowDefinitions="Auto,*,Auto">
+      <StackPanel>
+        <TextBlock Classes="h1" Text="AI API 配置" />
+        <TextBlock Classes="caption" Text="API Key 会使用主密码加密保存到本机。" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="1" Spacing="12" Margin="0,18,0,0">
+        <TextBox Watermark="Base URL" Text="{Binding BaseUrl}" />
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBox Watermark="API Key" Text="{Binding ApiKey}" PasswordChar="●" />
+          <Button Grid.Column="1" Margin="8,0,0,0" Content="查看" Click="RevealApiKey" />
+        </Grid>
+        <TextBox Watermark="模型" Text="{Binding Model}" />
+        <ComboBox SelectedValue="{Binding ExecutionMode}" SelectedValueBinding="{Binding Tag}">
+          <ComboBoxItem Content="仅建议" Tag="suggest" />
+          <ComboBoxItem Content="执行前确认" Tag="confirm" />
+          <ComboBoxItem Content="自动执行安全命令" Tag="auto_safe" />
+        </ComboBox>
+        <CheckBox Content="启用互联网搜索（Responses Web Search 工具）"
+                  IsChecked="{Binding EnableWebSearch}" />
+        <TextBox Watermark="系统提示词"
+                 Text="{Binding SystemPrompt}"
+                 AcceptsReturn="True"
+                 MinHeight="150"
+                 TextWrapping="Wrap" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+        <Button Content="取消" Click="Cancel" />
+        <Button Classes="primary" Content="保存" Click="Save" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

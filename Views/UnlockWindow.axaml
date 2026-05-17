@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SshStudio.Views.UnlockWindow"
+        Width="480"
+        Height="380"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Title="SshStudio 主密码">
+  <Border Classes="card" Margin="18" Padding="22">
+    <Grid RowDefinitions="Auto,*,Auto">
+      <StackPanel Spacing="8">
+        <TextBlock Classes="h1" Text="{Binding Title}" />
+        <TextBlock Classes="caption"
+                   TextWrapping="Wrap"
+                   Text="{Binding Description}" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="1" Spacing="12" Margin="0,22,0,0">
+        <TextBox Watermark="主密码"
+                 Text="{Binding Password}"
+                 PasswordChar="●" />
+        <TextBox Name="ConfirmPasswordBox"
+                 Watermark="再次输入主密码"
+                 Text="{Binding ConfirmPassword}"
+                 PasswordChar="●" />
+        <TextBlock Foreground="#DC2626"
+                   TextWrapping="Wrap"
+                   Text="{Binding Error}" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="2"
+                  Orientation="Horizontal"
+                  HorizontalAlignment="Right"
+                  Spacing="10">
+        <Button Content="退出" Click="Cancel" />
+        <Button Classes="primary" Content="解锁" Click="Unlock" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

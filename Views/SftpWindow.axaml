@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="using:SshStudio.Models"
+        x:Class="SshStudio.Views.SftpWindow"
+        Width="980"
+        Height="680"
+        Title="SFTP 文件传输">
+  <Border Classes="card" Margin="18" Padding="18">
+    <Grid RowDefinitions="Auto,*">
+      <Grid ColumnDefinitions="Auto,10,*,10,Auto,10,Auto">
+        <TextBlock Classes="h2" Text="SFTP" VerticalAlignment="Center" />
+        <TextBox Grid.Column="2" Text="{Binding RemotePath}" />
+        <Button Grid.Column="4" Content="刷新" Command="{Binding RefreshSftpCommand}" />
+        <Button Grid.Column="6" Classes="ghost" Content="上传" Click="UploadFile" />
+      </Grid>
+
+      <DataGrid x:Name="FileGrid"
+                Grid.Row="1"
+                Margin="0,14,0,0"
+                ItemsSource="{Binding Files}"
+                AutoGenerateColumns="False"
+                GridLinesVisibility="None"
+                HeadersVisibility="Column"
+                Background="Transparent"
+                BorderThickness="0"
+                DoubleTapped="FileGridDoubleTapped">
+        <DataGrid.ContextMenu>
+          <ContextMenu>
+            <MenuItem Header="下载并打开" Click="DownloadSelected" />
+            <MenuItem Header="重命名" Click="RenameSelected" />
+          </ContextMenu>
+        </DataGrid.ContextMenu>
+        <DataGrid.Columns>
+          <DataGridTemplateColumn Header="名称" Width="*">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate DataType="models:FileItem">
+                <TextBlock Classes="sftpName"
+                           Text="{Binding Name}"
+                           Padding="4,2" />
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+          <DataGridTextColumn Header="类型" Binding="{Binding Kind}" Width="140" />
+          <DataGridTextColumn Header="大小" Binding="{Binding Size}" Width="140" />
+          <DataGridTextColumn Header="修改时间" Binding="{Binding Modified}" Width="180" />
+        </DataGrid.Columns>
+      </DataGrid>
+    </Grid>
+  </Border>
+</Window>

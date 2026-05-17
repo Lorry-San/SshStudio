@@ -1,0 +1,214 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="using:SshStudio.Models"
+        xmlns:controls="using:SshStudio.Controls"
+        x:Class="SshStudio.Views.MainWindow"
+        Width="1560"
+        Height="930"
+        MinWidth="1180"
+        MinHeight="740"
+        Title="SshStudio">
+  <Grid RowDefinitions="Auto,*" Margin="20">
+    <Grid ColumnDefinitions="Auto,*,Auto" Margin="4,0,4,18">
+      <StackPanel>
+        <TextBlock Classes="h1" Text="SshStudio" />
+        <TextBlock Classes="caption" Text="SSH 工作台 / 文件传输 / AI 运维助手" Margin="0,4,0,0" />
+      </StackPanel>
+
+      <Border Grid.Column="1" Classes="glass" Padding="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Classes="primary" Content="{Binding StatusText}" />
+          <Button Content="SFTP" Click="OpenSftpPage" />
+          <Button Content="端口转发" />
+          <Button Content="审核" Command="{Binding ExecutePendingCommandCommand}" IsEnabled="{Binding HasPendingCommand}" />
+        </StackPanel>
+      </Border>
+
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
+        <Button Classes="ghost" Content="API 配置" Click="OpenApiConfig" />
+        <Button Classes="primary" Content="+ 新主机" Click="OpenHostEditor" />
+      </StackPanel>
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="300,18,*,18,370">
+      <Border Classes="card" Padding="16">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+          <StackPanel>
+            <TextBlock Classes="h2" Text="主机" />
+            <TextBlock Classes="caption" Text="单击选择，双击连接" Margin="0,4,0,0" />
+          </StackPanel>
+
+          <TextBox Grid.Row="1" Margin="0,16,0,14" Watermark="搜索主机 / IP / 用户" />
+
+          <ListBox Grid.Row="2" ItemsSource="{Binding Hosts}" SelectedItem="{Binding SelectedHost}" DoubleTapped="ConnectSelectedHost">
+            <ListBox.ItemTemplate>
+              <DataTemplate DataType="models:HostProfile">
+                <Border CornerRadius="18" Padding="14" Background="#F7FAFC" BorderBrush="#E0E9F1" BorderThickness="1">
+                  <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto">
+                    <StackPanel>
+                      <TextBlock FontWeight="800" FontSize="14" Text="{Binding Name}" />
+                      <TextBlock Classes="caption" Text="{Binding DisplayAddress}" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <Border Grid.Column="1" CornerRadius="999" Padding="9,4" Background="#E8F8F3">
+                      <TextBlock FontSize="11" FontWeight="700" Foreground="#0F766E" Text="{Binding Status}" />
+                    </Border>
+
+                    <Grid Grid.Row="1" Grid.ColumnSpan="2" ColumnDefinitions="*,10,*" Margin="0,14,0,0">
+                      <Border CornerRadius="14" Background="#FFFFFF" Padding="10">
+                        <StackPanel>
+                          <TextBlock Classes="caption" Text="CPU" />
+                          <TextBlock FontWeight="800" Text="{Binding Cpu, StringFormat={}{0}%}" />
+                        </StackPanel>
+                      </Border>
+                      <Border Grid.Column="2" CornerRadius="14" Background="#FFFFFF" Padding="10">
+                        <StackPanel>
+                          <TextBlock Classes="caption" Text="内存" />
+                          <TextBlock FontWeight="800" Text="{Binding Memory, StringFormat={}{0}%}" />
+                        </StackPanel>
+                      </Border>
+                    </Grid>
+
+                    <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Classes="caption" Text="{Binding Bandwidth}" Margin="0,10,0,0" />
+                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+                      <Button Content="编辑" Tag="{Binding}" Click="OpenHostEditor" />
+                      <Button Content="删除" Tag="{Binding}" Click="DeleteHost" />
+                      <Button Classes="ghost" Content="连接" Tag="{Binding}" Click="ConnectHostButton" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <Border Grid.Row="3" CornerRadius="18" Background="#101827" Padding="14" Margin="0,14,0,0">
+            <StackPanel>
+              <TextBlock Foreground="#FFFFFF" FontWeight="800" Text="30s 带宽窗口" />
+              <TextBlock Foreground="#93A4B8" FontSize="12" Text="最近流量趋势" Margin="0,4,0,12" />
+              <ItemsControl Height="52" ItemsSource="{Binding BandwidthSamples}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="3" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="models:BandwidthSample">
+                    <Border Width="7" Height="{Binding Height}" Background="#2DD4BF" CornerRadius="4" VerticalAlignment="Bottom" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Column="2">
+        <Border Padding="0" ClipToBounds="True" Background="#07111F" BorderBrush="#101827" BorderThickness="1" CornerRadius="22">
+          <Grid RowDefinitions="Auto,*,Auto" Background="#07111F">
+            <Border Background="#101827" Padding="16,13">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Border Width="10" Height="10" CornerRadius="5" Background="#22C55E" VerticalAlignment="Center" />
+                  <TextBlock Foreground="#FFFFFF" FontWeight="800" Text="{Binding SelectedHost.DisplayAddress}" />
+                  <TextBlock Foreground="#8EA2B8" Text="{Binding RemotePath}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Button Content="连接" Command="{Binding ConnectSelectedCommand}" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <controls:TerminalControl x:Name="Terminal"
+                                      Grid.Row="1"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Stretch"
+                                      TerminalInput="OnTerminalInput"
+                                      TerminalResize="OnTerminalResize" />
+
+            <Grid Grid.Row="2" ColumnDefinitions="*,10,Auto" Background="#0B1625" Height="40" Margin="0">
+              <TextBox x:Name="ShellInputBox"
+                       Text="{Binding ShellInput}"
+                       Watermark="输入 PTY 内容，回车请写 \n 或点击发送"
+                       FontFamily="Cascadia Mono, Consolas"
+                       Foreground="#D6E4F0"
+                       Background="#0B1625"
+                       BorderThickness="0"
+                       Padding="14,6" />
+              <Button Grid.Column="2" Classes="primary" Content="发送到 PTY" Click="SendShellInput" Margin="0,4,8,4" />
+            </Grid>
+          </Grid>
+        </Border>
+      </Grid>
+
+      <Border Grid.Column="4" Classes="card" Padding="16">
+        <Grid RowDefinitions="Auto,*,Auto,Auto">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel>
+              <TextBlock Classes="h2" Text="AI 助手" />
+              <TextBlock Classes="caption" Text="按当前主机隔离上下文，可选择加载长期记忆" Margin="0,4,0,0" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="API" Click="OpenApiConfig" />
+          </Grid>
+
+          <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="0,16,0,14">
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+              <CheckBox Content="加载记忆" IsChecked="{Binding UseMemory}" VerticalAlignment="Center" />
+              <Button Content="固化输入" Command="{Binding SaveMemoryCommand}" />
+              <Button Content="清空聊天" Command="{Binding ClearCurrentChatCommand}" />
+            </StackPanel>
+            <ScrollViewer Grid.Row="1">
+              <ItemsControl ItemsSource="{Binding Messages}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="models:ChatMessage">
+                    <Border CornerRadius="18" Padding="14" Margin="0,0,0,10" Background="#F7FAFC" BorderBrush="#E0E9F1" BorderThickness="1">
+                      <StackPanel>
+                        <TextBlock FontWeight="800" Text="{Binding Role}" />
+                        <controls:MarkdownView Markdown="{Binding Text}" Margin="0,6,0,0" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Grid>
+
+          <Border Grid.Row="2"
+                  CornerRadius="18"
+                  Padding="13"
+                  Background="#FFF8E8"
+                  BorderBrush="#F8D38B"
+                  BorderThickness="1"
+                  Margin="0,0,0,12"
+                  IsVisible="{Binding HasPendingCommand}">
+            <Grid RowDefinitions="Auto,8,Auto,12,Auto">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel>
+                  <TextBlock FontWeight="800" Text="命令审核" />
+                  <TextBlock Classes="caption" Text="点击执行后会立即隐藏，并把命令发到中间终端。" Margin="0,3,0,0" />
+                </StackPanel>
+                <Border Grid.Column="1" CornerRadius="999" Padding="8,3" Background="#FFE7B0">
+                  <TextBlock FontSize="11" FontWeight="800" Foreground="#805B18" Text="待确认" />
+                </Border>
+              </Grid>
+
+              <Border Grid.Row="2" CornerRadius="12" Background="#211707" Padding="10" MaxHeight="116">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <TextBlock Text="{Binding PendingCommand}" Foreground="#FFE8B6" FontFamily="Cascadia Mono, Consolas" FontSize="12" TextWrapping="Wrap" />
+                </ScrollViewer>
+              </Border>
+
+              <Grid Grid.Row="4" ColumnDefinitions="*,8,*">
+                <Button Classes="primary" Content="审核并执行" Command="{Binding ExecutePendingCommandCommand}" IsEnabled="{Binding HasPendingCommand}" />
+                <Button Grid.Column="2" Content="清空" Click="ClearPendingCommand" IsEnabled="{Binding HasPendingCommand}" />
+              </Grid>
+            </Grid>
+          </Border>
+
+          <Grid Grid.Row="3" ColumnDefinitions="*,10,Auto">
+            <TextBox Watermark="让 AI 检查 CPU、内存、磁盘或服务状态..." Text="{Binding AiInput}" />
+            <Button Grid.Column="2" Classes="primary" Content="发送" Command="{Binding SendAiCommand}" />
+          </Grid>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

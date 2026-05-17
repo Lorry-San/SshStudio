@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SshStudio.Views.CommandReviewWindow"
+        Width="720"
+        Height="460"
+        Title="命令审核">
+  <Border Classes="card" Margin="18" Padding="20">
+    <Grid RowDefinitions="Auto,*,Auto">
+      <StackPanel>
+        <TextBlock Classes="h1" Text="命令审核" />
+        <TextBlock Classes="caption" Text="命令会发送到当前 SSH 会话，执行前请确认目标主机和命令内容。" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="1" Spacing="12" Margin="0,18,0,0">
+        <TextBlock Classes="h2" Text="待执行命令" />
+        <TextBox x:Name="CommandBox"
+                 Text="{Binding}"
+                 AcceptsReturn="True"
+                 FontFamily="Cascadia Mono, Consolas"
+                 MinHeight="160"
+                 TextWrapping="Wrap" />
+      </StackPanel>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+        <Button Content="取消" Click="Cancel" />
+        <Button Classes="primary" Content="执行" Click="Execute" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>
