@@ -25,6 +25,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string? _activeCommandMarker;
     private string _activeChatHostKey = "";
     private bool _loadingMessages;
+    private bool _aiCommandRunning;
     private long _lastNetworkBytes;
 
     [ObservableProperty] private HostProfile? selectedHost;
@@ -76,7 +77,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _metricsTimer.Interval = TimeSpan.FromSeconds(1);
         _metricsTimer.Tick += async (_, _) => await RefreshMetricsAsync();
 
-        _terminalFlushTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _terminalFlushTimer.Interval = TimeSpan.FromMilliseconds(120);
         _terminalFlushTimer.Tick += (_, _) => FlushTerminalOutput();
         _terminalFlushTimer.Start();
 
@@ -291,6 +292,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task ExecuteCommandAsync(string command, bool returnToAi)
     {
+        _aiCommandRunning = true;
         try
         {
             var marker = "__SSHSTUDIO_DONE_" + Guid.NewGuid().ToString("N") + "__";
@@ -311,7 +313,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             StatusText = "命令完成";
             if (returnToAi)
             {
-                await ContinueAiAfterCommandAsync(command, output);
+                _ = ContinueAiAfterCommandAsync(command, output);
             }
         }
         catch (Exception ex)
@@ -321,6 +323,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         finally
         {
+            _aiCommandRunning = false;
             lock (_commandSync)
             {
                 _activeCommandMarker = null;
@@ -399,7 +402,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RefreshMetricsAsync()
     {
-        if (SelectedHost is null)
+        if (SelectedHost is null || _aiCommandRunning)
         {
             return;
         }

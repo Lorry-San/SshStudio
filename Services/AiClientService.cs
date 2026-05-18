@@ -34,17 +34,17 @@ public sealed class AiClientService
             Encoding.UTF8,
             "application/json");
 
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var raw = new StringBuilder();
         var data = new StringBuilder();
 
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
+            var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
             if (line is null)
             {
                 break;
@@ -52,7 +52,7 @@ public sealed class AiClientService
 
             if (line.Length == 0)
             {
-                await ConsumeSseDataAsync(data.ToString(), raw, onDelta);
+                await ConsumeSseDataAsync(data.ToString(), raw, onDelta).ConfigureAwait(false);
                 data.Clear();
                 continue;
             }
@@ -69,7 +69,7 @@ public sealed class AiClientService
 
         if (data.Length > 0)
         {
-            await ConsumeSseDataAsync(data.ToString(), raw, onDelta);
+            await ConsumeSseDataAsync(data.ToString(), raw, onDelta).ConfigureAwait(false);
         }
 
         return ParseAction(raw.ToString());
@@ -148,7 +148,7 @@ public sealed class AiClientService
             raw.Append(text);
             if (onDelta is not null)
             {
-                await onDelta(text);
+                await onDelta(text).ConfigureAwait(false);
             }
         }
         }

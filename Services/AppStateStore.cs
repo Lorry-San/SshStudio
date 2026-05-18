@@ -36,6 +36,10 @@ public sealed class AppStateStore
         {
             host.Password = _vault.Decrypt(host.Password);
             host.PrivateKey = _vault.Decrypt(host.PrivateKey);
+            host.Status = "未连接";
+            host.Cpu = 0;
+            host.Memory = 0;
+            host.Bandwidth = "--";
         }
         return hosts;
     }
@@ -51,10 +55,10 @@ public sealed class AppStateStore
             Password = _vault.Encrypt(host.Password),
             PrivateKey = _vault.Encrypt(host.PrivateKey),
             DefaultPath = host.DefaultPath,
-            Status = host.Status,
-            Cpu = host.Cpu,
-            Memory = host.Memory,
-            Bandwidth = host.Bandwidth
+            Status = "未连接",
+            Cpu = 0,
+            Memory = 0,
+            Bandwidth = "--"
         }).ToList();
         Save("hosts.json", persisted);
     }
