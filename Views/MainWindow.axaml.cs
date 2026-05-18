@@ -95,6 +95,25 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OpenSettings(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var model = new SettingsViewModel
+        {
+            RequireMasterPasswordOnStartup = ViewModel.RequireMasterPasswordOnStartup
+        };
+        var dialog = new SettingsWindow
+        {
+            DataContext = model,
+            MainViewModel = ViewModel
+        };
+        await dialog.ShowDialog<bool>(this);
+    }
+
     private void OpenSftpPage(object? sender, RoutedEventArgs e)
     {
         if (ViewModel is null)

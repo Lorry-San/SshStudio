@@ -24,6 +24,7 @@ public sealed class AppStateStore
 
     public bool VaultExists => _vault.Exists;
     public bool IsVaultUnlocked => _vault.IsUnlocked;
+    public bool RequireMasterPasswordOnStartup => _vault.RequireMasterPasswordOnStartup;
 
     public bool TryAutoUnlock()
     {
@@ -33,6 +34,25 @@ public sealed class AppStateStore
     public bool VerifyMasterPassword(string masterPassword)
     {
         return _vault.Unlock(masterPassword);
+    }
+
+    public bool SetRequireMasterPasswordOnStartup(bool require)
+    {
+        return _vault.SetRequireMasterPasswordOnStartup(require);
+    }
+
+    public bool ChangeMasterPassword(string currentPassword, string newPassword)
+    {
+        var hosts = LoadHosts();
+        var apiConfig = LoadApiConfig();
+        if (!_vault.ChangeMasterPassword(currentPassword, newPassword))
+        {
+            return false;
+        }
+
+        SaveHosts(hosts);
+        SaveApiConfig(apiConfig);
+        return true;
     }
 
     public List<HostProfile> LoadHosts()
@@ -70,6 +90,8 @@ public sealed class AppStateStore
             Password = _vault.Encrypt(host.Password),
             PrivateKey = _vault.Encrypt(host.PrivateKey),
             DefaultPath = host.DefaultPath,
+            HostKeyFingerprint = host.HostKeyFingerprint,
+            HostKeyAlgorithm = host.HostKeyAlgorithm,
             Status = "未连接",
             Cpu = 0,
             Memory = 0,
@@ -98,10 +120,31 @@ public sealed class AppStateStore
             BaseUrl = config.BaseUrl,
             ApiKey = _vault.Encrypt(config.ApiKey),
             Model = config.Model,
+            ApiMode = config.ApiMode,
             ExecutionMode = config.ExecutionMode,
             EnableWebSearch = config.EnableWebSearch,
-            SystemPrompt = config.SystemPrompt
+            CommandTimeoutSeconds = config.CommandTimeoutSeconds,
+            SystemPrompt = config.SystemPrompt,
+            ReviewPrompt = config.ReviewPrompt
         });
+    }
+
+    public void ExportConfigPackage(string path)
+    {
+        var package = new Dictionary<string, JsonElement>();
+        AddFileIfExists(package, "vault", "vault.json");
+        AddFileIfExists(package, "hosts", "hosts.json");
+        AddFileIfExists(package, "apiConfig", "api-config.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(package, JsonOptions));
+    }
+
+    public void ImportConfigPackage(string path)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var root = document.RootElement;
+        WriteFileIfPresent(root, "vault", "vault.json");
+        WriteFileIfPresent(root, "hosts", "hosts.json");
+        WriteFileIfPresent(root, "apiConfig", "api-config.json");
     }
 
     public List<HostChatHistory> LoadChatHistories()
@@ -139,6 +182,28 @@ public sealed class AppStateStore
     {
         var path = Path.Combine(_root, name);
         File.WriteAllText(path, JsonSerializer.Serialize(value, JsonOptions));
+    }
+
+    private void AddFileIfExists(Dictionary<string, JsonElement> package, string key, string name)
+    {
+        var path = Path.Combine(_root, name);
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        package[key] = document.RootElement.Clone();
+    }
+
+    private void WriteFileIfPresent(JsonElement root, string key, string name)
+    {
+        if (!root.TryGetProperty(key, out var value))
+        {
+            return;
+        }
+
+        Save(name, value);
     }
 
     private static bool ShouldMigrateSecret(string value)

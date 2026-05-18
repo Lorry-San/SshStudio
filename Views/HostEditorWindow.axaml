@@ -2,31 +2,35 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="SshStudio.Views.HostEditorWindow"
         Width="560"
-        Height="640"
+        Height="720"
         Title="主机配置">
   <Border Classes="card" Margin="18" Padding="20">
     <Grid RowDefinitions="Auto,*,Auto">
       <StackPanel>
         <TextBlock Classes="h1" Text="主机配置" />
-        <TextBlock Classes="caption" Text="SSH 密码和私钥密码会使用主密码加密保存到本机。" />
+        <TextBlock Classes="caption" Text="SSH 密码和私钥密码会使用主密码加密保存。首次连接会自动记录服务器指纹。" />
       </StackPanel>
 
-      <StackPanel Grid.Row="1" Spacing="12" Margin="0,18,0,0">
-        <TextBox Watermark="名称" Text="{Binding Name}" />
-        <TextBox Watermark="地址 / IP" Text="{Binding Address}" />
-        <TextBox Watermark="端口" Text="{Binding Port}" />
-        <TextBox Watermark="用户名" Text="{Binding User}" />
-        <Grid ColumnDefinitions="*,Auto">
-          <TextBox Watermark="密码" Text="{Binding Password}" PasswordChar="●" />
-          <Button Grid.Column="1" Margin="8,0,0,0" Content="查看" Click="RevealPassword" />
-        </Grid>
-        <TextBox Watermark="默认路径" Text="{Binding DefaultPath}" />
-        <TextBox Watermark="私钥，可选"
-                 Text="{Binding PrivateKey}"
-                 AcceptsReturn="True"
-                 MinHeight="130"
-                 TextWrapping="Wrap" />
-      </StackPanel>
+      <ScrollViewer Grid.Row="1" Margin="0,18,0,0">
+        <StackPanel Spacing="12">
+          <TextBox Watermark="名称" Text="{Binding Name}" />
+          <TextBox Watermark="地址 / IP" Text="{Binding Address}" />
+          <TextBox Watermark="端口" Text="{Binding Port}" />
+          <TextBox Watermark="用户名" Text="{Binding User}" />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox Watermark="密码" Text="{Binding Password}" PasswordChar="●" />
+            <Button Grid.Column="1" Margin="8,0,0,0" Content="查看" Click="RevealPassword" />
+          </Grid>
+          <TextBox Watermark="默认路径" Text="{Binding DefaultPath}" />
+          <TextBox Watermark="已记录主机指纹（首次连接后自动生成）" Text="{Binding HostKeyFingerprint}" IsReadOnly="True" />
+          <TextBox Watermark="主机密钥算法" Text="{Binding HostKeyAlgorithm}" IsReadOnly="True" />
+          <TextBox Watermark="私钥，可选"
+                   Text="{Binding PrivateKey}"
+                   AcceptsReturn="True"
+                   MinHeight="130"
+                   TextWrapping="Wrap" />
+        </StackPanel>
+      </ScrollViewer>
 
       <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
         <Button Content="取消" Click="Cancel" />

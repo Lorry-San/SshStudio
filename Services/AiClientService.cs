@@ -21,16 +21,63 @@ public sealed class AiClientService
         Func<string, Task>? onDelta = null,
         CancellationToken cancellationToken = default)
     {
+        var raw = await RequestTextAsync(
+            config,
+            BuildSystemPrompt(config),
+            BuildUserPrompt(userPrompt, terminalContext),
+            allowWebSearch: config.EnableWebSearch,
+            onDelta,
+            cancellationToken).ConfigureAwait(false);
+
+        return ParseAction(raw);
+    }
+
+    public async Task<CommandReviewResult> ReviewCommandAsync(
+        ApiConfig config,
+        string command,
+        string context,
+        CancellationToken cancellationToken = default)
+    {
+        var userPrompt =
+            "请审核下面 SSH 命令是否允许自动执行。\n\n" +
+            "命令:\n" + command + "\n\n" +
+            "上下文:\n" + context + "\n\n" +
+            "只输出 JSON: {\"allow\":true|false,\"risk\":\"safe|medium|danger\",\"reason\":\"中文原因\"}";
+
+        var raw = await RequestTextAsync(
+            config,
+            BuildReviewSystemPrompt(config),
+            userPrompt,
+            allowWebSearch: false,
+            onDelta: null,
+            cancellationToken).ConfigureAwait(false);
+
+        return ParseReview(raw);
+    }
+
+    private async Task<string> RequestTextAsync(
+        ApiConfig config,
+        string systemPrompt,
+        string userPrompt,
+        bool allowWebSearch,
+        Func<string, Task>? onDelta,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(config.ApiKey))
         {
             throw new InvalidOperationException("API Key 为空。");
         }
 
-        var endpoint = config.BaseUrl.TrimEnd('/') + "/responses";
+        var useChatCompletions = string.Equals(config.ApiMode, "chat_completions", StringComparison.OrdinalIgnoreCase);
+        var endpoint = config.BaseUrl.TrimEnd('/') + (useChatCompletions ? "/chat/completions" : "/responses");
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
         request.Content = new StringContent(
-            JsonSerializer.Serialize(BuildPayload(config, userPrompt, terminalContext), JsonOptions),
+            JsonSerializer.Serialize(
+                useChatCompletions
+                    ? BuildChatCompletionsPayload(config, systemPrompt, userPrompt)
+                    : BuildResponsesPayload(config, systemPrompt, userPrompt, allowWebSearch),
+                JsonOptions),
             Encoding.UTF8,
             "application/json");
 
@@ -52,7 +99,7 @@ public sealed class AiClientService
 
             if (line.Length == 0)
             {
-                await ConsumeSseDataAsync(data.ToString(), raw, onDelta).ConfigureAwait(false);
+                await ConsumeSseDataAsync(data.ToString(), raw, useChatCompletions, onDelta).ConfigureAwait(false);
                 data.Clear();
                 continue;
             }
@@ -69,21 +116,25 @@ public sealed class AiClientService
 
         if (data.Length > 0)
         {
-            await ConsumeSseDataAsync(data.ToString(), raw, onDelta).ConfigureAwait(false);
+            await ConsumeSseDataAsync(data.ToString(), raw, useChatCompletions, onDelta).ConfigureAwait(false);
         }
 
-        return ParseAction(raw.ToString());
+        return raw.ToString();
     }
 
-    private static object BuildPayload(ApiConfig config, string userPrompt, string terminalContext)
+    private static object BuildResponsesPayload(
+        ApiConfig config,
+        string systemPrompt,
+        string userPrompt,
+        bool allowWebSearch)
     {
         var input = new object[]
         {
-            new { role = "system", content = BuildSystemPrompt(config) },
-            new { role = "user", content = BuildUserPrompt(userPrompt, terminalContext) }
+            new { role = "system", content = systemPrompt },
+            new { role = "user", content = userPrompt }
         };
 
-        if (!config.EnableWebSearch)
+        if (!allowWebSearch)
         {
             return new
             {
@@ -105,7 +156,25 @@ public sealed class AiClientService
         };
     }
 
-    private static async Task ConsumeSseDataAsync(string data, StringBuilder raw, Func<string, Task>? onDelta)
+    private static object BuildChatCompletionsPayload(ApiConfig config, string systemPrompt, string userPrompt)
+    {
+        return new
+        {
+            model = config.Model,
+            stream = true,
+            messages = new object[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPrompt }
+            }
+        };
+    }
+
+    private static async Task ConsumeSseDataAsync(
+        string data,
+        StringBuilder raw,
+        bool useChatCompletions,
+        Func<string, Task>? onDelta)
     {
         if (string.IsNullOrWhiteSpace(data) || data == "[DONE]")
         {
@@ -121,37 +190,68 @@ public sealed class AiClientService
         {
             return;
         }
+
         using (document)
         {
-        var root = document.RootElement;
-        var type = root.TryGetProperty("type", out var typeElement) ? typeElement.GetString() ?? "" : "";
+            var text = useChatCompletions
+                ? ExtractChatCompletionsText(document.RootElement)
+                : ExtractResponsesText(document.RootElement);
 
-        string? text = null;
-        if ((type.Contains("output_text", StringComparison.OrdinalIgnoreCase) ||
-             type.Contains("text.delta", StringComparison.OrdinalIgnoreCase)) &&
-            root.TryGetProperty("delta", out var delta))
-        {
-            text = delta.GetString();
-        }
-        else if (root.TryGetProperty("response", out var response) &&
-                 response.TryGetProperty("output", out var output))
-        {
-            text = ExtractOutputText(output);
-        }
-        else if (root.TryGetProperty("output", out var directOutput))
-        {
-            text = ExtractOutputText(directOutput);
-        }
+            if (string.IsNullOrEmpty(text))
+            {
+                return;
+            }
 
-        if (!string.IsNullOrEmpty(text))
-        {
             raw.Append(text);
             if (onDelta is not null)
             {
                 await onDelta(text).ConfigureAwait(false);
             }
         }
+    }
+
+    private static string ExtractResponsesText(JsonElement root)
+    {
+        var type = root.TryGetProperty("type", out var typeElement) ? typeElement.GetString() ?? "" : "";
+        if ((type.Contains("output_text", StringComparison.OrdinalIgnoreCase) ||
+             type.Contains("text.delta", StringComparison.OrdinalIgnoreCase)) &&
+            root.TryGetProperty("delta", out var delta))
+        {
+            return delta.GetString() ?? "";
         }
+
+        if (root.TryGetProperty("response", out var response) &&
+            response.TryGetProperty("output", out var output))
+        {
+            return ExtractOutputText(output);
+        }
+
+        return root.TryGetProperty("output", out var directOutput) ? ExtractOutputText(directOutput) : "";
+    }
+
+    private static string ExtractChatCompletionsText(JsonElement root)
+    {
+        if (!root.TryGetProperty("choices", out var choices))
+        {
+            return "";
+        }
+
+        var builder = new StringBuilder();
+        foreach (var choice in choices.EnumerateArray())
+        {
+            if (choice.TryGetProperty("delta", out var delta) &&
+                delta.TryGetProperty("content", out var content))
+            {
+                builder.Append(content.GetString());
+            }
+            else if (choice.TryGetProperty("message", out var message) &&
+                     message.TryGetProperty("content", out var fullContent))
+            {
+                builder.Append(fullContent.GetString());
+            }
+        }
+
+        return builder.ToString();
     }
 
     private static string ExtractOutputText(JsonElement output)
@@ -197,6 +297,29 @@ public sealed class AiClientService
             Wait = GetBool(root, "wait", true),
             ReturnAfter = GetBool(root, "return_after", true),
             Next = GetString(root, "next", GetString(root, "next_action", ""))
+        };
+    }
+
+    private static CommandReviewResult ParseReview(string raw)
+    {
+        var json = ExtractFirstJsonObject(raw);
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new CommandReviewResult
+            {
+                Allow = false,
+                Risk = "danger",
+                Reason = "AI 审核没有返回有效 JSON。"
+            };
+        }
+
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        return new CommandReviewResult
+        {
+            Allow = GetBool(root, "allow", false),
+            Risk = GetString(root, "risk", "danger"),
+            Reason = GetString(root, "reason", "")
         };
     }
 
@@ -314,16 +437,25 @@ public sealed class AiClientService
     {
         return config.SystemPrompt + "\n" +
                "你在一个 SSH 图形工具里。你可以请求执行当前服务器命令，但必须只输出一个 JSON 对象，不要 Markdown 包裹，不要额外文本。" +
-               "命令动作格式：{\"type\":\"command\",\"message\":\"给用户看的中文说明\",\"intent\":\"目的\",\"command\":\"shell 命令\",\"risk\":\"safe|medium|danger\",\"wait\":true,\"return_after\":true,\"next\":\"拿到输出后继续分析什么\"}。" +
-               "最终回答格式：{\"type\":\"final\",\"message\":\"中文 Markdown 结论\",\"risk\":\"safe\"}。" +
+               "命令动作格式:{\"type\":\"command\",\"message\":\"给用户看的中文说明\",\"intent\":\"目的\",\"command\":\"shell 命令\",\"risk\":\"safe|medium|danger\",\"wait\":true,\"return_after\":true,\"next\":\"拿到输出后继续分析什么\"}。" +
+               "最终回答格式:{\"type\":\"final\",\"message\":\"中文 Markdown 结论\",\"risk\":\"safe\"}。" +
                "用户要求查看、检查、分析资源、配置、服务或日志时，优先返回 command。危险命令必须 risk=danger。" +
-               (config.EnableWebSearch
+               (config.EnableWebSearch && !string.Equals(config.ApiMode, "chat_completions", StringComparison.OrdinalIgnoreCase)
                    ? "如果问题涉及最新版本、漏洞公告、软件文档、报错资料或互联网资料，可以使用互联网搜索工具；搜索后仍必须按上述 JSON 格式输出。"
                    : "");
     }
 
+    private static string BuildReviewSystemPrompt(ApiConfig config)
+    {
+        return config.ReviewPrompt + "\n" +
+               "你只负责命令自动执行审核，不要执行命令，不要建议替代命令。" +
+               "必须只输出一个 JSON 对象，不要 Markdown，不要代码块，不要额外文本。" +
+               "JSON 格式必须是:{\"allow\":true|false,\"risk\":\"safe|medium|danger\",\"reason\":\"中文原因\"}。" +
+               "allow=true 仅表示可以自动执行；不确定时必须 allow=false。";
+    }
+
     private static string BuildUserPrompt(string prompt, string terminalContext)
     {
-        return "用户请求：\n" + prompt + "\n\n当前终端最近输出：\n" + terminalContext;
+        return "用户请求:\n" + prompt + "\n\n当前终端最近输出:\n" + terminalContext;
     }
 }

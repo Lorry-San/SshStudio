@@ -35,6 +35,8 @@ public sealed partial class HostEditorWindow : Window
                 Password = host.Password,
                 PrivateKey = host.PrivateKey,
                 DefaultPath = host.DefaultPath,
+                HostKeyFingerprint = host.HostKeyFingerprint,
+                HostKeyAlgorithm = host.HostKeyAlgorithm,
                 Status = host.Status,
                 Cpu = host.Cpu,
                 Memory = host.Memory,

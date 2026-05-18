@@ -11,6 +11,8 @@ public sealed partial class HostProfile : ObservableObject
     [ObservableProperty] private string password = "";
     [ObservableProperty] private string privateKey = "";
     [ObservableProperty] private string defaultPath = "/root";
+    [ObservableProperty] private string hostKeyFingerprint = "";
+    [ObservableProperty] private string hostKeyAlgorithm = "";
     [ObservableProperty] private string status = "未连接";
     [ObservableProperty] private double cpu;
     [ObservableProperty] private double memory;

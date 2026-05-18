@@ -1,36 +1,49 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="SshStudio.Views.ApiConfigWindow"
-        Width="620"
-        Height="570"
+        Width="680"
+        Height="780"
+        MinHeight="700"
         Title="API 配置">
   <Border Classes="card" Margin="18" Padding="20">
     <Grid RowDefinitions="Auto,*,Auto">
       <StackPanel>
         <TextBlock Classes="h1" Text="AI API 配置" />
-        <TextBlock Classes="caption" Text="API Key 会使用主密码加密保存到本机。" />
+        <TextBlock Classes="caption" Text="API Key 会使用主密码加密保存。自动执行前可使用独立 AI 审核提示词。" />
       </StackPanel>
 
-      <StackPanel Grid.Row="1" Spacing="12" Margin="0,18,0,0">
-        <TextBox Watermark="Base URL" Text="{Binding BaseUrl}" />
-        <Grid ColumnDefinitions="*,Auto">
-          <TextBox Watermark="API Key" Text="{Binding ApiKey}" PasswordChar="●" />
-          <Button Grid.Column="1" Margin="8,0,0,0" Content="查看" Click="RevealApiKey" />
-        </Grid>
-        <TextBox Watermark="模型" Text="{Binding Model}" />
-        <ComboBox SelectedValue="{Binding ExecutionMode}" SelectedValueBinding="{Binding Tag}">
-          <ComboBoxItem Content="仅建议" Tag="suggest" />
-          <ComboBoxItem Content="执行前确认" Tag="confirm" />
-          <ComboBoxItem Content="自动执行安全命令" Tag="auto_safe" />
-        </ComboBox>
-        <CheckBox Content="启用互联网搜索（Responses Web Search 工具）"
-                  IsChecked="{Binding EnableWebSearch}" />
-        <TextBox Watermark="系统提示词"
-                 Text="{Binding SystemPrompt}"
-                 AcceptsReturn="True"
-                 MinHeight="150"
-                 TextWrapping="Wrap" />
-      </StackPanel>
+      <ScrollViewer Grid.Row="1" Margin="0,18,0,14" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="12">
+          <TextBox Watermark="Base URL，例如 https://api.openai.com/v1" Text="{Binding BaseUrl}" />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox Watermark="API Key" Text="{Binding ApiKey}" PasswordChar="●" />
+            <Button Grid.Column="1" Margin="8,0,0,0" Content="查看" Click="RevealApiKey" />
+          </Grid>
+          <TextBox Watermark="模型，例如 gpt-5.4" Text="{Binding Model}" />
+          <ComboBox SelectedValue="{Binding ApiMode}" SelectedValueBinding="{Binding Tag}">
+            <ComboBoxItem Content="OpenAI Responses (/v1/responses)" Tag="responses" />
+            <ComboBoxItem Content="OpenAI Chat Completions (/v1/chat/completions)" Tag="chat_completions" />
+          </ComboBox>
+          <ComboBox SelectedValue="{Binding ExecutionMode}" SelectedValueBinding="{Binding Tag}">
+            <ComboBoxItem Content="仅建议" Tag="suggest" />
+            <ComboBoxItem Content="执行前确认" Tag="confirm" />
+            <ComboBoxItem Content="AI 审核通过后自动执行" Tag="auto_safe" />
+          </ComboBox>
+          <TextBox Watermark="AI 命令等待超时秒数，默认 180" Text="{Binding CommandTimeoutSeconds}" />
+          <CheckBox Content="启用互联网搜索（仅 Responses 模式有效）"
+                    IsChecked="{Binding EnableWebSearch}" />
+          <TextBox Watermark="系统提示词：控制 AI 如何生成诊断命令和结论"
+                   Text="{Binding SystemPrompt}"
+                   AcceptsReturn="True"
+                   MinHeight="130"
+                   TextWrapping="Wrap" />
+          <TextBox Watermark="独立审核提示词：只用于判断命令是否允许自动执行"
+                   Text="{Binding ReviewPrompt}"
+                   AcceptsReturn="True"
+                   MinHeight="170"
+                   TextWrapping="Wrap" />
+        </StackPanel>
+      </ScrollViewer>
 
       <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
         <Button Content="取消" Click="Cancel" />

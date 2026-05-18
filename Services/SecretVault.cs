@@ -32,6 +32,7 @@ public sealed class SecretVault
     public bool Exists => File.Exists(_metadataPath);
     public bool IsUnlocked => _key is not null;
     public bool HasLegacyLocalSecrets => _hasLegacyLocalSecrets;
+    public bool RequireMasterPasswordOnStartup => Exists && LoadMetadata().RequireMasterPasswordOnStartup;
 
     public bool TryAutoUnlock()
     {
@@ -41,6 +42,11 @@ public sealed class SecretVault
         }
 
         var metadata = LoadMetadata();
+        if (metadata.RequireMasterPasswordOnStartup)
+        {
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(metadata.LocalUnlockKey))
         {
             return false;
@@ -133,6 +139,55 @@ public sealed class SecretVault
         }
 
         return value;
+    }
+
+    public bool SetRequireMasterPasswordOnStartup(bool require)
+    {
+        if (!Exists)
+        {
+            return false;
+        }
+
+        var metadata = _metadata ?? LoadMetadata();
+        metadata.RequireMasterPasswordOnStartup = require;
+        if (require)
+        {
+            metadata.LocalUnlockKey = "";
+        }
+        else if (IsUnlocked)
+        {
+            _metadata = metadata;
+            EnsureLocalUnlockKey();
+            return true;
+        }
+
+        SaveMetadata(metadata);
+        _metadata = metadata;
+        return true;
+    }
+
+    public bool ChangeMasterPassword(string currentPassword, string newPassword)
+    {
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 6 || !Unlock(currentPassword))
+        {
+            return false;
+        }
+
+        var metadata = _metadata ?? LoadMetadata();
+        var oldKey = _key!;
+        var salt = RandomNumberGenerator.GetBytes(16);
+        var newKey = DeriveKey(newPassword, salt, metadata.Iterations);
+        metadata.Salt = Convert.ToBase64String(salt);
+        metadata.Verifier = EncryptValue(VerifierText, newKey);
+        metadata.LocalUnlockKey = metadata.RequireMasterPasswordOnStartup
+            ? ""
+            : EncryptForCurrentUser(Convert.ToBase64String(newKey));
+
+        _key = newKey;
+        _metadata = metadata;
+        SaveMetadata(metadata);
+        CryptographicOperations.ZeroMemory(oldKey);
+        return true;
     }
 
     public static bool IsEncrypted(string value)

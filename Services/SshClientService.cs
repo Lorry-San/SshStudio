@@ -1,8 +1,8 @@
+using System.Reflection;
+using System.Text;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 using SshStudio.Models;
-using System.Text;
-using System.Reflection;
 
 namespace SshStudio.Services;
 
@@ -28,8 +28,57 @@ public sealed class SshClientService : IDisposable
             var connection = BuildConnectionInfo(host);
             _ssh = new SshClient(connection);
             _sftp = new SftpClient(connection);
+            string? hostKeyError = null;
+            var learnedHostKey = false;
+
+            void VerifyHostKey(object? _, HostKeyEventArgs args)
+            {
+                var fingerprint = NormalizeSha256Fingerprint(args.FingerPrintSHA256);
+                if (string.IsNullOrWhiteSpace(fingerprint))
+                {
+                    args.CanTrust = false;
+                    hostKeyError = "SSH host key fingerprint is empty.";
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(host.HostKeyFingerprint))
+                {
+                    host.HostKeyFingerprint = fingerprint;
+                    host.HostKeyAlgorithm = args.HostKeyName;
+                    learnedHostKey = true;
+                    args.CanTrust = true;
+                    return;
+                }
+
+                if (string.Equals(host.HostKeyFingerprint, fingerprint, StringComparison.Ordinal))
+                {
+                    args.CanTrust = true;
+                    return;
+                }
+
+                args.CanTrust = false;
+                hostKeyError = "SSH host key changed. Expected " + host.HostKeyFingerprint + ", got " + fingerprint + ".";
+            }
+
+            _ssh.HostKeyReceived += VerifyHostKey;
+            _sftp.HostKeyReceived += VerifyHostKey;
             _ssh.Connect();
+            if (!string.IsNullOrWhiteSpace(hostKeyError))
+            {
+                throw new SshConnectionException(hostKeyError);
+            }
+
             _sftp.Connect();
+            if (!string.IsNullOrWhiteSpace(hostKeyError))
+            {
+                throw new SshConnectionException(hostKeyError);
+            }
+
+            if (learnedHostKey)
+            {
+                ShellOutputReceived?.Invoke("\n[SSH] 已记录主机指纹 " + host.HostKeyFingerprint + "\n");
+            }
+
             StartShellReader();
         });
     }
@@ -182,7 +231,7 @@ public sealed class SshClientService : IDisposable
     {
         if (!string.IsNullOrWhiteSpace(host.PrivateKey))
         {
-            using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(host.PrivateKey));
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(host.PrivateKey));
             var key = string.IsNullOrEmpty(host.Password)
                 ? new PrivateKeyFile(stream)
                 : new PrivateKeyFile(stream, host.Password);
@@ -270,5 +319,15 @@ public sealed class SshClientService : IDisposable
             unit++;
         }
         return $"{value:0.#} {units[unit]}";
+    }
+
+    private static string NormalizeSha256Fingerprint(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+
+        return value.StartsWith("SHA256:", StringComparison.Ordinal) ? value : "SHA256:" + value;
     }
 }

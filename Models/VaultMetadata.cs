@@ -8,5 +8,6 @@ public sealed class VaultMetadata
     public string Salt { get; set; } = "";
     public string Verifier { get; set; } = "";
     public string LocalUnlockKey { get; set; } = "";
+    public bool RequireMasterPasswordOnStartup { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

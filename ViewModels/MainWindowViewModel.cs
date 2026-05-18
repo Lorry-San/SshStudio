@@ -22,6 +22,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly object _commandSync = new();
     private readonly List<HostChatHistory> _chatHistories;
     private TaskCompletionSource<string>? _commandCompletion;
+    private CancellationTokenSource? _commandWaitCts;
     private string? _activeCommandMarker;
     private string _activeChatHostKey = "";
     private bool _loadingMessages;
@@ -36,9 +37,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string pendingCommand = "";
     [ObservableProperty] private string statusText = "就绪";
     [ObservableProperty] private bool useMemory;
+    [ObservableProperty] private bool isCommandRunning;
     [ObservableProperty] private ApiConfig apiConfig;
 
     public bool HasPendingCommand => !string.IsNullOrWhiteSpace(PendingCommand);
+    public bool CanCancelCommand => IsCommandRunning;
+    public bool RequireMasterPasswordOnStartup
+    {
+        get => _store.RequireMasterPasswordOnStartup;
+        set
+        {
+            _store.SetRequireMasterPasswordOnStartup(value);
+            OnPropertyChanged();
+        }
+    }
+
     public event Action<string>? TerminalOutputReceived;
     public event Action? TerminalResetRequested;
 
@@ -54,6 +67,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _ssh.ShellOutputReceived += OnShellOutputReceived;
         apiConfig = _store.LoadApiConfig();
         _chatHistories = _store.LoadChatHistories();
+
         foreach (var memory in _store.LoadMemories())
         {
             Memories.Add(memory);
@@ -115,9 +129,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _commandCapture.Clear();
             ClearPendingTerminalOutput();
             await _ssh.ConnectAsync(SelectedHost);
+            SaveHosts();
             SelectedHost.Status = "已连接";
             RemotePath = string.IsNullOrWhiteSpace(SelectedHost.DefaultPath) ? "/root" : SelectedHost.DefaultPath;
             AppendTerminal("已连接 " + SelectedHost.DisplayAddress);
+            if (!string.IsNullOrWhiteSpace(SelectedHost.HostKeyFingerprint))
+            {
+                AppendTerminal("[SSH] 主机指纹 " + SelectedHost.HostKeyFingerprint);
+            }
             StatusText = "已连接";
             _lastNetworkBytes = 0;
             _metricsTimer.Start();
@@ -126,9 +145,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             SelectedHost.Status = "连接失败";
-            AppendTerminal("连接失败：" + ex.Message);
+            AppendTerminal("连接失败: " + ex.Message);
             StatusText = "连接失败";
         }
+
         OnPropertyChanged(nameof(Hosts));
     }
 
@@ -160,7 +180,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusText = "SFTP 失败";
-            AppendTerminal("SFTP 刷新失败：" + ex.Message);
+            AppendTerminal("SFTP 刷新失败: " + ex.Message);
         }
     }
 
@@ -194,7 +214,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            assistantMessage.Text = "AI 请求失败：" + ex.Message;
+            assistantMessage.Text = "AI 请求失败: " + ex.Message;
             assistantMessage.Tone = "danger";
             SaveCurrentChatHistory();
             StatusText = "AI 失败";
@@ -207,11 +227,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PendingCommand = action.Command;
         StatusText = "AI 完成";
 
-        if (action.Type == "command" && ApiConfig.ExecutionMode == "auto_safe" && IsSafeCommand(action.Command))
-        {
-            PendingCommand = "";
-            await ExecuteCommandAsync(action.Command, returnToAi: true);
-        }
+        await TryAutoExecuteReviewedCommandAsync(action);
     }
 
     [RelayCommand]
@@ -243,6 +259,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SaveCurrentChatHistory();
     }
 
+    [RelayCommand]
+    private void CancelRunningCommand()
+    {
+        _commandWaitCts?.Cancel();
+        StatusText = "已停止等待命令";
+        AddMessage(new ChatMessage("assistant", "已停止等待当前 AI 命令完成；远端命令可能仍在 PTY 中运行，如需停止请在终端发送 Ctrl+C。", "warning"));
+    }
+
+    [RelayCommand]
+    private void ResetHostFingerprint()
+    {
+        if (SelectedHost is null)
+        {
+            return;
+        }
+
+        SelectedHost.HostKeyFingerprint = "";
+        SelectedHost.HostKeyAlgorithm = "";
+        SaveHosts();
+        StatusText = "已重置主机指纹";
+    }
+
     public void SaveHosts()
     {
         _store.SaveHosts(Hosts);
@@ -260,6 +298,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return _store.VerifyMasterPassword(masterPassword);
     }
 
+    public bool ChangeMasterPassword(string currentPassword, string newPassword)
+    {
+        return _store.ChangeMasterPassword(currentPassword, newPassword);
+    }
+
+    public void ExportConfigPackage(string path)
+    {
+        _store.ExportConfigPackage(path);
+        StatusText = "配置已导出";
+    }
+
+    public void ImportConfigPackage(string path)
+    {
+        _store.ImportConfigPackage(path);
+        StatusText = "配置已导入，重启后生效";
+    }
+
     public void AddOrUpdateHost(HostProfile host, HostProfile? existing)
     {
         if (existing is null)
@@ -274,6 +329,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 Hosts[index] = host;
             }
         }
+
         SelectedHost = host;
         SaveHosts();
     }
@@ -293,6 +349,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public async Task ExecuteCommandAsync(string command, bool returnToAi)
     {
         _aiCommandRunning = true;
+        IsCommandRunning = true;
+        _commandWaitCts?.Dispose();
+        _commandWaitCts = new CancellationTokenSource();
         try
         {
             var marker = "__SSHSTUDIO_DONE_" + Guid.NewGuid().ToString("N") + "__";
@@ -309,21 +368,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await _ssh.SendCommandToShellAsync(command);
             await _ssh.SendCommandToShellAsync($"printf '\\n{marker}:%s\\n' $?");
 
-            var output = await WaitForCommandCompletionAsync(completion, TimeSpan.FromMinutes(3));
+            var timeout = TimeSpan.FromSeconds(Math.Clamp(ApiConfig.CommandTimeoutSeconds, 15, 3600));
+            var output = await WaitForCommandCompletionAsync(completion, timeout, _commandWaitCts.Token);
             StatusText = "命令完成";
-            if (returnToAi)
+            if (returnToAi && !_commandWaitCts.IsCancellationRequested)
             {
                 _ = ContinueAiAfterCommandAsync(command, output);
             }
         }
         catch (Exception ex)
         {
-            AppendTerminal("执行失败：" + ex.Message);
+            AppendTerminal("执行失败: " + ex.Message);
             StatusText = "执行失败";
         }
         finally
         {
             _aiCommandRunning = false;
+            IsCommandRunning = false;
             lock (_commandSync)
             {
                 _activeCommandMarker = null;
@@ -355,6 +416,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             return;
         }
+
         var input = text.Replace("\\n", "\n", StringComparison.Ordinal);
         if (!input.EndsWith('\n') && !input.EndsWith('\r'))
         {
@@ -448,22 +510,58 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task ContinueAiAfterCommandAsync(string command, string output)
     {
-        var observation = "OBSERVATION\n已执行命令：\n" + command + "\n\n命令输出：\n" + output;
+        var observation = "OBSERVATION\n已执行命令:\n" + command + "\n\n命令输出:\n" + output;
         try
         {
             var action = await _ai.RequestActionAsync(ApiConfig, observation, BuildFullContext());
             AddMessage(new ChatMessage("assistant", action.Message, action.Risk));
             PendingCommand = action.Command;
-            if (action.Type == "command" && ApiConfig.ExecutionMode == "auto_safe" && IsSafeCommand(action.Command))
-            {
-                PendingCommand = "";
-                await ExecuteCommandAsync(action.Command, returnToAi: true);
-            }
+            await TryAutoExecuteReviewedCommandAsync(action);
         }
         catch (Exception ex)
         {
-            AddMessage(new ChatMessage("assistant", "命令输出已捕获，但 AI 继续分析失败：" + ex.Message, "danger"));
+            AddMessage(new ChatMessage("assistant", "命令输出已捕获，但 AI 继续分析失败: " + ex.Message, "danger"));
         }
+    }
+
+    private async Task TryAutoExecuteReviewedCommandAsync(AiAction action)
+    {
+        if (action.Type != "command" ||
+            ApiConfig.ExecutionMode != "auto_safe" ||
+            string.IsNullOrWhiteSpace(action.Command))
+        {
+            return;
+        }
+
+        if (HasLocalHardBlock(action.Command))
+        {
+            AddMessage(new ChatMessage("assistant", "本地硬拦截：该命令包含多行、过长或明显危险结构，已转为人工审核。", "danger"));
+            return;
+        }
+
+        CommandReviewResult review;
+        try
+        {
+            StatusText = "AI 正在审核命令...";
+            review = await _ai.ReviewCommandAsync(ApiConfig, action.Command, BuildFullContext());
+        }
+        catch (Exception ex)
+        {
+            AddMessage(new ChatMessage("assistant", "AI 命令审核失败，已转为人工审核: " + ex.Message, "warning"));
+            StatusText = "AI 审核失败";
+            return;
+        }
+
+        if (!review.Allow || review.Risk == "danger")
+        {
+            AddMessage(new ChatMessage("assistant", "AI 审核未放行，已转为人工审核: " + review.Reason, "warning"));
+            StatusText = "AI 审核未放行";
+            return;
+        }
+
+        AddMessage(new ChatMessage("assistant", "AI 审核通过，自动执行命令: " + review.Reason, review.Risk));
+        PendingCommand = "";
+        await ExecuteCommandAsync(action.Command, returnToAi: true);
     }
 
     private void AddMessage(ChatMessage message)
@@ -529,9 +627,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string BuildFullContext()
     {
         var builder = new StringBuilder();
-        builder.AppendLine("当前主机：");
+        builder.AppendLine("当前主机:");
         builder.AppendLine(SelectedHost is null ? "未选择主机" : SelectedHost.DisplayAddress);
-        builder.AppendLine("当前路径：" + RemotePath);
+        builder.AppendLine("当前路径: " + RemotePath);
         builder.AppendLine();
 
         if (UseMemory)
@@ -542,23 +640,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 .ToList();
             if (memories.Count > 0)
             {
-                builder.AppendLine("已加载长期记忆：");
+                builder.AppendLine("已加载长期记忆:");
                 foreach (var memory in memories)
                 {
-                    builder.AppendLine("- " + memory.Title + "：" + memory.Content);
+                    builder.AppendLine("- " + memory.Title + ": " + memory.Content);
                 }
                 builder.AppendLine();
             }
         }
 
-        builder.AppendLine("最近聊天记录：");
+        builder.AppendLine("最近聊天记录:");
         foreach (var message in Messages.TakeLast(14))
         {
             builder.AppendLine(message.Role + ": " + TrimForContext(message.Text, 1200));
         }
         builder.AppendLine();
 
-        builder.AppendLine("当前终端最近输出：");
+        builder.AppendLine("当前终端最近输出:");
         builder.AppendLine(_recentTerminal.ToString());
         return builder.ToString();
     }
@@ -653,16 +751,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Replace("?25l", "", StringComparison.Ordinal);
     }
 
-    private async Task<string> WaitForCommandCompletionAsync(TaskCompletionSource<string> completion, TimeSpan timeout)
+    private async Task<string> WaitForCommandCompletionAsync(
+        TaskCompletionSource<string> completion,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
-        var finished = await Task.WhenAny(completion.Task, Task.Delay(timeout));
+        var finished = await Task.WhenAny(completion.Task, Task.Delay(timeout, cancellationToken));
         if (finished == completion.Task)
         {
             return await completion.Task;
         }
 
         var output = _commandCapture.ToString();
-        AddMessage(new ChatMessage("assistant", "命令还没有返回完成标记，可能仍在执行；我先停止等待，请看中间终端输出。", "warning"));
+        var message = cancellationToken.IsCancellationRequested
+            ? "已取消等待命令完成；远端命令可能仍在运行。"
+            : "命令还没有返回完成标记，可能仍在执行；我先停止等待，请查看中间终端输出。";
+        AddMessage(new ChatMessage("assistant", message, "warning"));
         return output;
     }
 
@@ -700,11 +804,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return directory.TrimEnd('/') + "/" + name.TrimStart('/');
     }
 
-    private static bool IsSafeCommand(string command)
+    private static bool HasLocalHardBlock(string command)
     {
-        var lower = command.ToLowerInvariant();
-        string[] dangerous = ["rm ", "chmod ", "chown ", "reboot", "shutdown", "mkfs", "dd ", "systemctl restart", "systemctl stop", "kubectl delete"];
-        return dangerous.All(marker => !lower.Contains(marker));
+        var normalized = command.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Contains('\n') || normalized.Length > 600)
+        {
+            return true;
+        }
+
+        var lower = normalized.ToLowerInvariant();
+        return lower == "rm" ||
+               lower.StartsWith("rm ", StringComparison.Ordinal) ||
+               lower.StartsWith("rm\t", StringComparison.Ordinal) ||
+               lower.Contains("; rm ", StringComparison.Ordinal) ||
+               lower.Contains("&& rm ", StringComparison.Ordinal) ||
+               lower.Contains("|| rm ", StringComparison.Ordinal) ||
+               lower.Contains("| rm ", StringComparison.Ordinal) ||
+               lower == "rmdir" ||
+               lower.StartsWith("rmdir ", StringComparison.Ordinal) ||
+               lower.StartsWith("rmdir\t", StringComparison.Ordinal);
     }
 
     private static string FormatRate(long bytesPerSecond)
@@ -728,11 +846,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private static string TrimString(string value, int maxLength)
-    {
-        return value.Length <= maxLength ? value : value[^maxLength..];
-    }
-
     private static string TrimForContext(string value, int maxLength)
     {
         return value.Length <= maxLength ? value : value[..maxLength] + "...";
@@ -746,5 +859,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPendingCommandChanged(string value)
     {
         OnPropertyChanged(nameof(HasPendingCommand));
+    }
+
+    partial void OnIsCommandRunningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanCancelCommand));
     }
 }

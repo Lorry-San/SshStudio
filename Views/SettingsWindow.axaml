@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SshStudio.Views.SettingsWindow"
+        Width="640"
+        Height="680"
+        MinWidth="560"
+        MinHeight="620"
+        Title="安全与配置">
+  <Border Classes="card" Margin="18" Padding="20">
+    <Grid RowDefinitions="Auto,*,Auto">
+      <StackPanel>
+        <TextBlock Classes="h1" Text="安全与配置" />
+        <TextBlock Classes="caption" Text="管理主密码、安全模式和可迁移配置包。" />
+      </StackPanel>
+
+      <ScrollViewer Grid.Row="1" Margin="0,18,0,14" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16">
+          <Border CornerRadius="16" Padding="14" Background="#F7FAFC" BorderBrush="#E0E9F1" BorderThickness="1">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="h2" Text="解锁模式" />
+              <CheckBox Content="安全模式：每次启动都必须输入主密码"
+                        IsChecked="{Binding RequireMasterPasswordOnStartup}" />
+              <TextBlock Classes="caption"
+                         TextWrapping="Wrap"
+                         Text="关闭时，同一 Windows 账户会使用 DPAPI 自动解锁；换机器仍可用主密码恢复。" />
+            </StackPanel>
+          </Border>
+
+          <Border CornerRadius="16" Padding="14" Background="#F7FAFC" BorderBrush="#E0E9F1" BorderThickness="1">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="h2" Text="修改主密码" />
+              <TextBox Watermark="当前主密码" Text="{Binding CurrentPassword}" PasswordChar="●" />
+              <TextBox Watermark="新主密码（至少 6 位）" Text="{Binding NewPassword}" PasswordChar="●" />
+              <TextBox Watermark="再次输入新主密码" Text="{Binding ConfirmNewPassword}" PasswordChar="●" />
+              <Button Classes="primary" Content="修改主密码" Click="ChangePassword" HorizontalAlignment="Left" />
+            </StackPanel>
+          </Border>
+
+          <Border CornerRadius="16" Padding="14" Background="#F7FAFC" BorderBrush="#E0E9F1" BorderThickness="1">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="h2" Text="迁移配置" />
+              <TextBlock Classes="caption"
+                         TextWrapping="Wrap"
+                         Text="导出包包含 vault.json、hosts.json、api-config.json；换机导入后输入主密码即可恢复。" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="导出配置包" Click="ExportConfig" />
+                <Button Content="导入配置包" Click="ImportConfig" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+
+          <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#0F766E" />
+        </StackPanel>
+      </ScrollViewer>
+
+      <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+        <Button Classes="primary" Content="关闭" Click="CloseWindow" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

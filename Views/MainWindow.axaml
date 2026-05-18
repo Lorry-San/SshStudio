@@ -19,12 +19,13 @@
         <StackPanel Orientation="Horizontal" Spacing="6">
           <Button Classes="primary" Content="{Binding StatusText}" />
           <Button Content="SFTP" Click="OpenSftpPage" />
-          <Button Content="端口转发" />
-          <Button Content="审核" Command="{Binding ExecutePendingCommandCommand}" IsEnabled="{Binding HasPendingCommand}" />
+          <Button Content="审核命令" Command="{Binding ExecutePendingCommandCommand}" IsEnabled="{Binding HasPendingCommand}" />
+          <Button Content="停止等待" Command="{Binding CancelRunningCommand}" IsEnabled="{Binding CanCancelCommand}" />
         </StackPanel>
       </Border>
 
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
+        <Button Classes="ghost" Content="安全配置" Click="OpenSettings" />
         <Button Classes="ghost" Content="API 配置" Click="OpenApiConfig" />
         <Button Classes="primary" Content="+ 新主机" Click="OpenHostEditor" />
       </StackPanel>
@@ -35,7 +36,7 @@
         <Grid RowDefinitions="Auto,Auto,*,Auto">
           <StackPanel>
             <TextBlock Classes="h2" Text="主机" />
-            <TextBlock Classes="caption" Text="单击选择，双击连接" Margin="0,4,0,0" />
+            <TextBlock Classes="caption" Text="单击选择，双击连接。首次连接会记录 SSH 指纹。" Margin="0,4,0,0" />
           </StackPanel>
 
           <TextBox Grid.Row="1" Margin="0,16,0,14" Watermark="搜索主机 / IP / 用户" />
@@ -110,8 +111,10 @@
                   <Border Width="10" Height="10" CornerRadius="5" Background="#22C55E" VerticalAlignment="Center" />
                   <TextBlock Foreground="#FFFFFF" FontWeight="800" Text="{Binding SelectedHost.DisplayAddress}" />
                   <TextBlock Foreground="#8EA2B8" Text="{Binding RemotePath}" />
+                  <TextBlock Foreground="#8EA2B8" Text="{Binding SelectedHost.HostKeyFingerprint}" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Button Content="重置指纹" Command="{Binding ResetHostFingerprintCommand}" />
                   <Button Content="连接" Command="{Binding ConnectSelectedCommand}" />
                 </StackPanel>
               </Grid>
@@ -144,7 +147,7 @@
           <Grid ColumnDefinitions="*,Auto">
             <StackPanel>
               <TextBlock Classes="h2" Text="AI 助手" />
-              <TextBlock Classes="caption" Text="按当前主机隔离上下文，可选择加载长期记忆" Margin="0,4,0,0" />
+              <TextBlock Classes="caption" Text="按当前主机隔离上下文，可选择加载长期记忆。" Margin="0,4,0,0" />
             </StackPanel>
             <Button Grid.Column="1" Content="API" Click="OpenApiConfig" />
           </Grid>
@@ -183,7 +186,7 @@
               <Grid ColumnDefinitions="*,Auto">
                 <StackPanel>
                   <TextBlock FontWeight="800" Text="命令审核" />
-                  <TextBlock Classes="caption" Text="点击执行后会立即隐藏，并把命令发到中间终端。" Margin="0,3,0,0" />
+                  <TextBlock Classes="caption" Text="执行后命令会进入中间终端，长命令可点击顶部“停止等待”。" Margin="0,3,0,0" />
                 </StackPanel>
                 <Border Grid.Column="1" CornerRadius="999" Padding="8,3" Background="#FFE7B0">
                   <TextBlock FontSize="11" FontWeight="800" Foreground="#805B18" Text="待确认" />
@@ -204,7 +207,7 @@
           </Border>
 
           <Grid Grid.Row="3" ColumnDefinitions="*,10,Auto">
-            <TextBox Watermark="让 AI 检查 CPU、内存、磁盘或服务状态..." Text="{Binding AiInput}" />
+            <TextBox Watermark="让 AI 检查 CPU、内存、磁盘、服务或日志..." Text="{Binding AiInput}" />
             <Button Grid.Column="2" Classes="primary" Content="发送" Command="{Binding SendAiCommand}" />
           </Grid>
         </Grid>
