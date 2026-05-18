@@ -12,7 +12,8 @@ public sealed class SecretVault
     private const int KeySize = 32;
     private const int NonceSize = 12;
     private const int TagSize = 16;
-    private static readonly byte[] VerifierPlaintext = Encoding.UTF8.GetBytes("SshStudio vault verifier");
+    private const string VerifierText = "SshStudio vault verifier";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -21,6 +22,7 @@ public sealed class SecretVault
     private readonly string _metadataPath;
     private VaultMetadata? _metadata;
     private byte[]? _key;
+    private bool _hasLegacyLocalSecrets;
 
     public SecretVault(string root)
     {
@@ -29,6 +31,40 @@ public sealed class SecretVault
 
     public bool Exists => File.Exists(_metadataPath);
     public bool IsUnlocked => _key is not null;
+    public bool HasLegacyLocalSecrets => _hasLegacyLocalSecrets;
+
+    public bool TryAutoUnlock()
+    {
+        if (!Exists)
+        {
+            return false;
+        }
+
+        var metadata = LoadMetadata();
+        if (string.IsNullOrWhiteSpace(metadata.LocalUnlockKey))
+        {
+            return false;
+        }
+
+        try
+        {
+            var key = Convert.FromBase64String(DecryptForCurrentUser(metadata.LocalUnlockKey));
+            if (key.Length != KeySize)
+            {
+                CryptographicOperations.ZeroMemory(key);
+                return false;
+            }
+
+            DecryptValue(metadata.Verifier, key);
+            _metadata = metadata;
+            _key = key;
+            return true;
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
+        {
+            return false;
+        }
+    }
 
     public bool Unlock(string masterPassword)
     {
@@ -50,14 +86,10 @@ public sealed class SecretVault
             DecryptValue(metadata.Verifier, key);
             _metadata = metadata;
             _key = key;
+            EnsureLocalUnlockKey();
             return true;
         }
-        catch (CryptographicException)
-        {
-            CryptographicOperations.ZeroMemory(key);
-            return false;
-        }
-        catch (FormatException)
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
         {
             CryptographicOperations.ZeroMemory(key);
             return false;
@@ -66,12 +98,19 @@ public sealed class SecretVault
 
     public string Encrypt(string value)
     {
-        if (string.IsNullOrEmpty(value) || IsEncrypted(value) || IsLocallyEncrypted(value))
+        if (string.IsNullOrEmpty(value) || IsEncrypted(value))
         {
             return value;
         }
 
-        return EncryptForCurrentUser(value);
+        EnsureUnlocked();
+
+        if (IsLocallyEncrypted(value))
+        {
+            value = DecryptForCurrentUser(value);
+        }
+
+        return EncryptValue(value, _key!);
     }
 
     public string Decrypt(string value)
@@ -83,6 +122,7 @@ public sealed class SecretVault
 
         if (IsLocallyEncrypted(value))
         {
+            _hasLegacyLocalSecrets = true;
             return DecryptForCurrentUser(value);
         }
 
@@ -113,24 +153,58 @@ public sealed class SecretVault
             Salt = Convert.ToBase64String(salt)
         };
         var key = DeriveKey(masterPassword, salt, metadata.Iterations);
-        metadata.Verifier = EncryptValue(Encoding.UTF8.GetString(VerifierPlaintext), key);
-        File.WriteAllText(_metadataPath, JsonSerializer.Serialize(metadata, JsonOptions));
+        metadata.Verifier = EncryptValue(VerifierText, key);
         _metadata = metadata;
         _key = key;
+        EnsureLocalUnlockKey();
     }
 
     private VaultMetadata LoadMetadata()
     {
         return JsonSerializer.Deserialize<VaultMetadata>(File.ReadAllText(_metadataPath), JsonOptions)
-            ?? throw new InvalidOperationException("主密码配置损坏。");
+            ?? throw new InvalidOperationException("Vault metadata is corrupted.");
     }
 
     private void EnsureUnlocked()
     {
         if (_key is null || _metadata is null)
         {
-            throw new InvalidOperationException("请先输入主密码解锁。");
+            throw new InvalidOperationException("Please enter the master password first.");
         }
+    }
+
+    private void EnsureLocalUnlockKey()
+    {
+        EnsureUnlocked();
+        if (CanUseLocalUnlockKey(_metadata!.LocalUnlockKey))
+        {
+            return;
+        }
+
+        _metadata.LocalUnlockKey = EncryptForCurrentUser(Convert.ToBase64String(_key!));
+        SaveMetadata(_metadata);
+    }
+
+    private static bool CanUseLocalUnlockKey(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Convert.FromBase64String(DecryptForCurrentUser(value)).Length == KeySize;
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
+        {
+            return false;
+        }
+    }
+
+    private void SaveMetadata(VaultMetadata metadata)
+    {
+        File.WriteAllText(_metadataPath, JsonSerializer.Serialize(metadata, JsonOptions));
     }
 
     private static byte[] DeriveKey(string password, byte[] salt, int iterations)
@@ -165,7 +239,7 @@ public sealed class SecretVault
         var payload = Convert.FromBase64String(value[Prefix.Length..]);
         if (payload.Length < NonceSize + TagSize)
         {
-            throw new CryptographicException("密文格式无效。");
+            throw new CryptographicException("Invalid ciphertext format.");
         }
 
         var nonce = payload[..NonceSize];

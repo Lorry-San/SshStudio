@@ -13,6 +13,7 @@ public sealed partial class UnlockWindow : Window
 
     public string MasterPassword { get; private set; } = "";
     public bool Accepted { get; private set; }
+    public Func<string, bool>? PasswordVerifier { get; set; }
 
     public bool IsSetup
     {
@@ -23,8 +24,8 @@ public sealed partial class UnlockWindow : Window
             model.IsSetup = value;
             model.Title = value ? "设置主密码" : "输入主密码";
             model.Description = value
-                ? "主密码用于加密本机保存的 SSH 密码、私钥密码和 API Key。忘记后无法恢复。"
-                : "输入主密码解锁本机保存的 SSH 密码、私钥密码和 API Key。";
+                ? "主密码用于加密 SSH 密码、私钥密码和 API Key。当前 Windows 账户之后可自动解锁；换机后可用主密码恢复。"
+                : "当前 Windows 账户无法自动解锁，请输入主密码恢复 SSH 密码、私钥密码和 API Key。";
             DataContext = model;
             if (ConfirmPasswordBox is not null)
             {
@@ -49,6 +50,12 @@ public sealed partial class UnlockWindow : Window
         if (model.IsSetup && model.Password != model.ConfirmPassword)
         {
             model.Error = "两次输入的主密码不一致。";
+            return;
+        }
+
+        if (PasswordVerifier is not null && !PasswordVerifier(model.Password))
+        {
+            model.Error = model.IsSetup ? "主密码创建失败。" : "主密码错误。";
             return;
         }
 

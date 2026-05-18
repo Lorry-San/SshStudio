@@ -60,9 +60,10 @@ public sealed partial class ApiConfigWindow : Window
     {
         var unlock = new UnlockWindow
         {
-            IsSetup = !viewModel.VaultExists
+            IsSetup = !viewModel.VaultExists,
+            PasswordVerifier = viewModel.VerifyMasterPassword
         };
         var result = await unlock.ShowDialog<bool>(this);
-        return result && unlock.Accepted && viewModel.VerifyMasterPassword(unlock.MasterPassword);
+        return result && unlock.Accepted;
     }
 }

@@ -23,6 +23,12 @@ public sealed class AppStateStore
     }
 
     public bool VaultExists => _vault.Exists;
+    public bool IsVaultUnlocked => _vault.IsUnlocked;
+
+    public bool TryAutoUnlock()
+    {
+        return _vault.TryAutoUnlock();
+    }
 
     public bool VerifyMasterPassword(string masterPassword)
     {
@@ -32,8 +38,11 @@ public sealed class AppStateStore
     public List<HostProfile> LoadHosts()
     {
         var hosts = Load<List<HostProfile>>("hosts.json") ?? [];
+        var shouldMigrateSecrets = false;
         foreach (var host in hosts)
         {
+            shouldMigrateSecrets |= ShouldMigrateSecret(host.Password);
+            shouldMigrateSecrets |= ShouldMigrateSecret(host.PrivateKey);
             host.Password = _vault.Decrypt(host.Password);
             host.PrivateKey = _vault.Decrypt(host.PrivateKey);
             host.Status = "未连接";
@@ -41,6 +50,12 @@ public sealed class AppStateStore
             host.Memory = 0;
             host.Bandwidth = "--";
         }
+
+        if (shouldMigrateSecrets || _vault.HasLegacyLocalSecrets)
+        {
+            SaveHosts(hosts);
+        }
+
         return hosts;
     }
 
@@ -66,7 +81,13 @@ public sealed class AppStateStore
     public ApiConfig LoadApiConfig()
     {
         var config = Load<ApiConfig>("api-config.json") ?? new ApiConfig();
+        var shouldMigrateSecrets = ShouldMigrateSecret(config.ApiKey);
         config.ApiKey = _vault.Decrypt(config.ApiKey);
+        if (shouldMigrateSecrets || _vault.HasLegacyLocalSecrets)
+        {
+            SaveApiConfig(config);
+        }
+
         return config;
     }
 
@@ -118,5 +139,10 @@ public sealed class AppStateStore
     {
         var path = Path.Combine(_root, name);
         File.WriteAllText(path, JsonSerializer.Serialize(value, JsonOptions));
+    }
+
+    private static bool ShouldMigrateSecret(string value)
+    {
+        return !string.IsNullOrEmpty(value) && !SecretVault.IsEncrypted(value);
     }
 }
